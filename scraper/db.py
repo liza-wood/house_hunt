@@ -128,6 +128,28 @@ def upsert_property(conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
         )
 
 
+def known_prop_ids(db_path: Path = DB_PATH) -> set[str]:
+    with connect(db_path) as conn:
+        rows = conn.execute("SELECT prop_id FROM properties").fetchall()
+    return {r["prop_id"] for r in rows}
+
+
+def touch_property(conn: sqlite3.Connection, prop_id: str, price: int | None, sold_status: str | None) -> None:
+    """Lightweight update for already-known properties: price, sold_status, last_seen only."""
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    cur = conn.execute("SELECT price, sold_status FROM properties WHERE prop_id = ?", (prop_id,))
+    existing = cur.fetchone()
+    conn.execute(
+        "UPDATE properties SET price=?, sold_status=?, last_seen=? WHERE prop_id=?",
+        (price, sold_status, now, prop_id),
+    )
+    if existing and (existing["price"] != price or existing["sold_status"] != sold_status):
+        conn.execute(
+            "INSERT OR REPLACE INTO price_history (prop_id, seen_at, price, sold_status) VALUES (?, ?, ?, ?)",
+            (prop_id, now, price, sold_status),
+        )
+
+
 def all_properties(db_path: Path = DB_PATH) -> list[sqlite3.Row]:
     with connect(db_path) as conn:
         return list(conn.execute("SELECT * FROM properties ORDER BY added_on DESC NULLS LAST"))

@@ -30,14 +30,25 @@ async def refresh() -> None:
     hits = await rightmove.collect_search_hits(cfg)
     print(f"  → {len(hits)} unique listings")
 
-    # 2. Scrape each property's detail page
+    # Split into new (need full scrape) vs known (just update price/status)
+    known_ids = db.known_prop_ids()
+    new_hits = [h for h in hits if h.prop_id not in known_ids]
+    known_hits = [h for h in hits if h.prop_id in known_ids]
+    print(f"  → {len(new_hits)} new, {len(known_hits)} already known")
+
+    # Lightweight update for known properties
+    with db.connect() as conn:
+        for h in known_hits:
+            db.touch_property(conn, h.prop_id, h.price, None)
+
+    # 2. Scrape detail pages for new properties only
     print("\n[2/3] scraping property detail pages…")
-    pids = [h.prop_id for h in hits]
+    new_pids = [h.prop_id for h in new_hits]
     if cfg.max_properties:
-        pids = pids[: cfg.max_properties]
-    payloads = await rightmove.scrape_properties(pids)
+        new_pids = new_pids[: cfg.max_properties]
+    payloads = await rightmove.scrape_properties(new_pids)
     # Backfill from search hit if a detail field is missing
-    by_id = {h.prop_id: h for h in hits}
+    by_id = {h.prop_id: h for h in new_hits}
     for p in payloads:
         h = by_id.get(str(p["prop_id"]))
         if not h:
@@ -49,7 +60,7 @@ async def refresh() -> None:
         if not p.get("added_on"):
             p["added_on"] = h.added_on
 
-    # 3. Enrich (postcode, stations, flood, commutes, valuation)
+    # 3. Enrich new properties only (postcode, stations, flood, commutes, valuation)
     print("\n[3/3] enriching…")
     async with httpx.AsyncClient(headers={"User-Agent": "house-hunt/0.1 (personal)"}) as client:
         for i, p in enumerate(payloads, 1):
