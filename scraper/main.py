@@ -61,37 +61,34 @@ async def refresh() -> None:
             p["added_on"] = h.added_on
 
     # 3. Enrich new properties only (postcode, stations, flood, commutes, valuation)
+    # Write each property to DB immediately after enrichment so progress survives interruptions.
     print("\n[3/3] enriching…")
+    written = 0
     async with httpx.AsyncClient(headers={"User-Agent": "house-hunt/0.1 (personal)"}) as client:
         for i, p in enumerate(payloads, 1):
             lat, lon = p.get("latitude"), p.get("longitude")
-            # postcode (only if missing)
             if not p.get("postcode") and lat and lon:
                 try:
                     p["postcode"] = await enrich.reverse_geocode(client, lat, lon)
                 except Exception as e:
                     print(f"  postcode {p['prop_id']}: {e!r}")
 
-            # stations
             if lat and lon:
                 try:
                     p.update(await enrich.nearest_stations(client, lat, lon))
                 except Exception as e:
                     print(f"  stations {p['prop_id']}: {e!r}")
 
-            # flood
             try:
                 p["flood_risk_band"] = await enrich.flood_risk(client, p.get("postcode"), lat, lon)
             except Exception as e:
                 print(f"  flood {p['prop_id']}: {e!r}")
 
-            # commute times
             try:
                 p.update(await tfl.commute_times(client, p.get("postcode")))
             except Exception as e:
                 print(f"  commute {p['prop_id']}: {e!r}")
 
-            # valuation
             growth = hmlr.area_growth_for(p.get("postcode"))
             p["implied_annual_pct"] = enrich.implied_annual_growth(
                 p.get("price"), p.get("last_sold_price"), p.get("last_sold_date")
@@ -100,14 +97,14 @@ async def refresh() -> None:
                 p.get("last_sold_price"), p.get("last_sold_date"), growth
             )
 
+            with db.connect() as conn:
+                db.upsert_property(conn, p)
+            written += 1
+
             if i % 10 == 0 or i == len(payloads):
                 print(f"  enriched {i}/{len(payloads)}")
 
-    # Write to DB
-    with db.connect() as conn:
-        for p in payloads:
-            db.upsert_property(conn, p)
-    print(f"\n✓ Wrote {len(payloads)} properties to {db.DB_PATH}")
+    print(f"\n✓ Wrote {written} properties to {db.DB_PATH}")
 
 
 if __name__ == "__main__":
