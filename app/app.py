@@ -30,11 +30,12 @@ st.set_page_config(page_title="North London house hunt", layout="wide")
 # Livability score (0–100)
 # ---------------------------------------------------------------------------
 # Components and max points:
-#   Price per sqm   25 pts  (lower is better; NA → 0)
-#   Commute         25 pts  (best of two destinations; NA → 0)
-#   Connectivity    15 pts  (nearest station walk; NA → 0)
-#   Tenure          20 pts  (freehold > SOF > leasehold; years not stored yet)
-#   Outdoor space   15 pts  (garden > terrace/balcony > none)
+#   Price per sqm      25 pts  (lower is better; NA → 0)
+#   Commute            25 pts  (best of two destinations; NA → 0)
+#   Connectivity       15 pts  (nearest station walk; NA → 0)
+#   Tenure             20 pts  (freehold > SOF > leasehold; years not stored yet)
+#   Outdoor space      15 pts  (garden > terrace/balcony > none)
+#   Ground floor flat -10 pts  (penalty when is_flat=1 and ground_floor=1)
 
 _GARDEN_KEYWORDS = ("garden",)
 _TERRACE_KEYWORDS = ("terrace", "balcony", "patio", "courtyard", "outdoor space", "outside space")
@@ -77,7 +78,11 @@ def _livability_score(row: pd.Series) -> float:
         elif nearest <= 1200: score += 6
         else:                 score += 3
 
-    # 4. Tenure (0–20 pts)
+    # 4. Ground floor flat penalty (-10 pts)
+    if row.get("is_flat") == 1 and row.get("ground_floor") == 1:
+        score -= 10
+
+    # 5. Tenure (0–20 pts)
     # Note: years remaining on lease are not currently stored — leaseholds score flat.
     tenure = str(row.get("tenure") or "").upper()
     if "SHARE_OF_FREEHOLD" in tenure or "COMMONHOLD" in tenure:
@@ -87,7 +92,7 @@ def _livability_score(row: pd.Series) -> float:
     elif "LEASEHOLD" in tenure:
         score += 8
 
-    # 5. Outdoor space (0–15 pts)
+    # 6. Outdoor space (0–15 pts)
     haystack = str(row.get("key_features") or "").lower()
     has_garden = any(kw in haystack for kw in _GARDEN_KEYWORDS)
     has_terrace = any(kw in haystack for kw in _TERRACE_KEYWORDS) and _JULIET not in haystack
