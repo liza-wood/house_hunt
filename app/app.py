@@ -222,6 +222,8 @@ with st.sidebar:
     max_walk_tube = st.slider("Max walk to Tube/DLR (m)", 0, 2500, 1500, step=100)
     max_walk_rail = st.slider("Max walk to Overground/Rail (m)", 0, 2500, 2000, step=100)
 
+    score_lo = st.slider("Minimum livability score", 0, 100, 0, step=1)
+
     show_sold = st.checkbox("Include Sold STC / Under Offer", value=True)
 
 
@@ -244,6 +246,8 @@ commute_pass = (
     df["commute_sw1p_minutes"].isna() | (df["commute_sw1p_minutes"] <= commute_max)
 )
 mask = mask & commute_pass
+
+mask = mask & (df["score"] >= score_lo)
 
 if not show_sold:
     mask = mask & ~df["sold_status"].fillna("").str.contains("Sold|Under Offer", case=False, regex=True)
