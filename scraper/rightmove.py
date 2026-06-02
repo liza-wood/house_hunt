@@ -43,6 +43,7 @@ class SearchHit:
     property_type: str | None
     added_on: str | None
     summary: str | None
+    sold_status: str | None = None
 
 
 async def collect_search_hits(cfg: SearchConfig) -> list[SearchHit]:
@@ -176,6 +177,7 @@ async def _scrape_search_page(page: Page, cfg: SearchConfig, index: int) -> list
         ptype = item.get("propertySubType") or item.get("propertyType")
         first_visible = (item.get("firstVisibleDate") or item.get("listingUpdate", {}).get("listingUpdateDate"))
         summary = item.get("summary")
+        display_status = item.get("displayStatus") or None
         out.append(SearchHit(
             prop_id=pid,
             price=int(price) if price else None,
@@ -184,6 +186,7 @@ async def _scrape_search_page(page: Page, cfg: SearchConfig, index: int) -> list
             property_type=ptype,
             added_on=_iso_date(first_visible),
             summary=summary,
+            sold_status=display_status,
         ))
     return out
 

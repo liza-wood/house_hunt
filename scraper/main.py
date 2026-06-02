@@ -39,7 +39,7 @@ async def refresh() -> None:
     # Lightweight update for known properties
     with db.connect() as conn:
         for h in known_hits:
-            db.touch_property(conn, h.prop_id, h.price, None)
+            db.touch_property(conn, h.prop_id, h.price, h.sold_status)
 
     # 2. Scrape detail pages for new properties only
     print("\n[2/3] scraping property detail pages…")
