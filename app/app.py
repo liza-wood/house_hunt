@@ -341,11 +341,18 @@ if view == "List":
     if filtered.empty:
         st.warning("No matches. Loosen a filter.")
     else:
-        total_pages = max(1, math.ceil(len(filtered) / PAGE_SIZE))
+        search = st.text_input("Search by address", placeholder="e.g. Highbury, N5, Tufnell Park…")
+        if search:
+            mask_search = filtered["address"].fillna("").str.contains(search.strip(), case=False, regex=False)
+            displayed = filtered[mask_search].reset_index(drop=True)
+        else:
+            displayed = filtered
+
+        total_pages = max(1, math.ceil(len(displayed) / PAGE_SIZE))
         page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, step=1)
         start = (page - 1) * PAGE_SIZE
-        st.caption(f"Showing {start + 1}–{min(start + PAGE_SIZE, len(filtered))} of {len(filtered)}")
-        for _, row in filtered.iloc[start : start + PAGE_SIZE].iterrows():
+        st.caption(f"Showing {start + 1}–{min(start + PAGE_SIZE, len(displayed))} of {len(displayed)}")
+        for _, row in displayed.iloc[start : start + PAGE_SIZE].iterrows():
             _card(row)
 
 # ---------------------------------------------------------------------------
