@@ -27,6 +27,79 @@ st.set_page_config(page_title="North London house hunt", layout="wide")
 
 
 # ---------------------------------------------------------------------------
+# Livability score (0–100)
+# ---------------------------------------------------------------------------
+# Components and max points:
+#   Price per sqm   25 pts  (lower is better; NA → 0)
+#   Commute         25 pts  (best of two destinations; NA → 0)
+#   Connectivity    15 pts  (nearest station walk; NA → 0)
+#   Tenure          20 pts  (freehold > SOF > leasehold; years not stored yet)
+#   Outdoor space   15 pts  (garden > terrace/balcony > none)
+
+_GARDEN_KEYWORDS = ("garden",)
+_TERRACE_KEYWORDS = ("terrace", "balcony", "patio", "courtyard", "outdoor space", "outside space")
+_JULIET = "juliet"
+
+
+def _livability_score(row: pd.Series) -> float:
+    score = 0.0
+
+    # 1. Price per sqm (0–25 pts)
+    price = row.get("price")
+    sqm = row.get("size_sqm")
+    if pd.notna(price) and pd.notna(sqm) and sqm and price:
+        ppsm = price / sqm
+        if ppsm < 5_000:   score += 25
+        elif ppsm < 6_000: score += 20
+        elif ppsm < 7_000: score += 15
+        elif ppsm < 8_000: score += 10
+        elif ppsm < 9_000: score += 5
+
+    # 2. Commute — best of both destinations (0–25 pts)
+    commutes = [v for v in [row.get("commute_wc2b_minutes"), row.get("commute_sw1p_minutes")]
+                if pd.notna(v)]
+    if commutes:
+        best = min(commutes)
+        if best <= 20:   score += 25
+        elif best <= 30: score += 20
+        elif best <= 40: score += 15
+        elif best <= 50: score += 10
+        elif best <= 60: score += 5
+
+    # 3. Connectivity — nearest of tube or rail (0–15 pts)
+    dists = [v for v in [row.get("nearest_tube_dist_m"), row.get("nearest_rail_dist_m")]
+             if pd.notna(v)]
+    if dists:
+        nearest = min(dists)
+        if nearest <= 300:    score += 15
+        elif nearest <= 600:  score += 12
+        elif nearest <= 900:  score += 9
+        elif nearest <= 1200: score += 6
+        else:                 score += 3
+
+    # 4. Tenure (0–20 pts)
+    # Note: years remaining on lease are not currently stored — leaseholds score flat.
+    tenure = str(row.get("tenure") or "").upper()
+    if "SHARE_OF_FREEHOLD" in tenure or "COMMONHOLD" in tenure:
+        score += 17
+    elif "FREEHOLD" in tenure:
+        score += 20
+    elif "LEASEHOLD" in tenure:
+        score += 8
+
+    # 5. Outdoor space (0–15 pts)
+    haystack = str(row.get("key_features") or "").lower()
+    has_garden = any(kw in haystack for kw in _GARDEN_KEYWORDS)
+    has_terrace = any(kw in haystack for kw in _TERRACE_KEYWORDS) and _JULIET not in haystack
+    if has_garden:
+        score += 15
+    elif has_terrace:
+        score += 8
+
+    return round(score)
+
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
@@ -43,15 +116,15 @@ def load_properties() -> pd.DataFrame:
             "council_tax_band, added_on, last_seen, last_sold_price, last_sold_date, "
             "implied_annual_pct, nearest_tube_name, nearest_tube_dist_m, "
             "nearest_rail_name, nearest_rail_dist_m, flood_risk_band, fair_value_gbp, "
-            "commute_wc2b_minutes, commute_sw1p_minutes "
+            "commute_wc2b_minutes, commute_sw1p_minutes, key_features "
             "FROM properties",
             conn,
         )
     if df.empty:
         return df
-    # Sort by added_on desc, NaNs last
+    df["score"] = df.apply(_livability_score, axis=1)
     df["added_on_dt"] = pd.to_datetime(df["added_on"], errors="coerce")
-    df = df.sort_values("added_on_dt", ascending=False, na_position="last").reset_index(drop=True)
+    df = df.sort_values("score", ascending=False).reset_index(drop=True)
     return df
 
 
@@ -147,7 +220,7 @@ with st.sidebar:
     show_sold = st.checkbox("Include Sold STC / Under Offer", value=True)
 
 
-# Apply
+# Apply filters
 mask = (
     f_range(df, "price", price_lo, price_hi)
     & f_range(df, "bedrooms", bed_lo, bed_hi)
@@ -160,7 +233,6 @@ mask = (
     & f_max(df, "nearest_rail_dist_m", max_walk_rail)
 )
 
-# Commute: either work location under cap → pass; NaN passes
 commute_pass = (
     df["commute_wc2b_minutes"].isna() | (df["commute_wc2b_minutes"] <= commute_max)
 ) | (
@@ -200,10 +272,32 @@ def _fmt(v, suffix="", unknown="—") -> str:
     return f"{v}{suffix}"
 
 
+def _score_breakdown(row: pd.Series) -> str:
+    """One-line explanation of what drove the score."""
+    parts = []
+    price, sqm = row.get("price"), row.get("size_sqm")
+    if pd.notna(price) and pd.notna(sqm) and sqm:
+        parts.append(f"£{int(price/sqm):,}/sqm")
+    commutes = [v for v in [row.get("commute_wc2b_minutes"), row.get("commute_sw1p_minutes")] if pd.notna(v)]
+    if commutes:
+        parts.append(f"{int(min(commutes))} min commute")
+    tenure = str(row.get("tenure") or "").replace("_", " ").title()
+    if tenure:
+        parts.append(tenure)
+    haystack = str(row.get("key_features") or "").lower()
+    if "garden" in haystack:
+        parts.append("garden")
+    elif any(kw in haystack for kw in ("terrace", "balcony", "patio", "courtyard")):
+        parts.append("terrace/balcony")
+    return " · ".join(parts)
+
+
 def _card(row: pd.Series) -> None:
     cols = st.columns([3, 2])
     with cols[0]:
-        st.markdown(f"### [{row['address'] or 'Unknown address'}]({row['url']})")
+        score = int(row.get("score") or 0)
+        st.markdown(f"### [{row['address'] or 'Unknown address'}]({row['url']})  `{score}/100`")
+        st.caption(_score_breakdown(row))
         bits = [
             _fmt_price(row.get("price")),
             f"{_fmt(row.get('bedrooms'))} bed",
@@ -267,6 +361,7 @@ else:
                 f"<b>{row.get('address') or 'Unknown'}</b><br>"
                 f"{_fmt_price(row.get('price'))} · "
                 f"{_fmt(row.get('bedrooms'))} bed · {_fmt(row.get('size_sqm'), ' sqm')}<br>"
+                f"Score: {int(row.get('score') or 0)}/100<br>"
                 f"<a href='{row['url']}' target='_blank'>Open on RightMove</a>"
             )
             folium.CircleMarker(
@@ -277,6 +372,6 @@ else:
                 fill_color="#e05c1a",
                 fill_opacity=0.8,
                 popup=folium.Popup(popup_html, max_width=300),
-                tooltip=_fmt_price(row.get("price")),
+                tooltip=f"{_fmt_price(row.get('price'))} · {int(row.get('score') or 0)}/100",
             ).add_to(cluster)
         st_folium(m, width=None, height=720, returned_objects=[])
