@@ -269,8 +269,13 @@ else:
                 f"{_fmt(row.get('bedrooms'))} bed · {_fmt(row.get('size_sqm'), ' sqm')}<br>"
                 f"<a href='{row['url']}' target='_blank'>Open on RightMove</a>"
             )
-            folium.Marker(
+            folium.CircleMarker(
                 location=[row["latitude"], row["longitude"]],
+                radius=8,
+                color="#e05c1a",
+                fill=True,
+                fill_color="#e05c1a",
+                fill_opacity=0.8,
                 popup=folium.Popup(popup_html, max_width=300),
                 tooltip=_fmt_price(row.get("price")),
             ).add_to(cluster)
