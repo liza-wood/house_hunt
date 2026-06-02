@@ -36,7 +36,17 @@ def load_properties() -> pd.DataFrame:
     if not Path(DB_PATH).exists():
         return pd.DataFrame()
     with sqlite3.connect(DB_PATH) as conn:
-        df = pd.read_sql_query("SELECT * FROM properties", conn)
+        df = pd.read_sql_query(
+            "SELECT prop_id, url, address, postcode, latitude, longitude, "
+            "price, price_qualifier, sold_status, property_type, bedrooms, bathrooms, "
+            "size_sqm, is_flat, ground_floor, tenure, service_charge_gbp, "
+            "council_tax_band, added_on, last_seen, last_sold_price, last_sold_date, "
+            "implied_annual_pct, nearest_tube_name, nearest_tube_dist_m, "
+            "nearest_rail_name, nearest_rail_dist_m, flood_risk_band, fair_value_gbp, "
+            "commute_wc2b_minutes, commute_sw1p_minutes "
+            "FROM properties",
+            conn,
+        )
     if df.empty:
         return df
     # Sort by added_on desc, NaNs last
@@ -226,11 +236,17 @@ def _card(row: pd.Series) -> None:
     st.divider()
 
 
+PAGE_SIZE = 25
+
 if view == "List":
     if filtered.empty:
         st.warning("No matches. Loosen a filter.")
     else:
-        for _, row in filtered.iterrows():
+        total_pages = max(1, math.ceil(len(filtered) / PAGE_SIZE))
+        page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, step=1)
+        start = (page - 1) * PAGE_SIZE
+        st.caption(f"Showing {start + 1}–{min(start + PAGE_SIZE, len(filtered))} of {len(filtered)}")
+        for _, row in filtered.iloc[start : start + PAGE_SIZE].iterrows():
             _card(row)
 
 # ---------------------------------------------------------------------------
