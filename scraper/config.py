@@ -16,7 +16,7 @@ DB_PATH = DATA_DIR / "houses.db"
 class SearchConfig:
     max_price: int = int(os.getenv("RM_MAX_PRICE", "750000"))
     min_bedrooms: int = int(os.getenv("RM_MIN_BEDROOMS", "2"))
-    location_id: int = int(os.getenv("RM_LOCATION_ID", "8910875"))
+    location_id: int = int(os.getenv("RM_LOCATION_ID", "10139343"))
     include_sstc: bool = True
     # Soft caps for testing; set in .env or env vars.
     max_pages: int | None = (
