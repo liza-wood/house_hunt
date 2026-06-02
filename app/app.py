@@ -231,7 +231,7 @@ def _card(row: pd.Series) -> None:
             st.write(f"**HMLR fair value:** £{int(row['fair_value_gbp']):,} ({'+' if diff>=0 else '−'}£{abs(int(diff)):,})")
         if pd.notna(row.get("implied_annual_pct")):
             st.write(f"**Implied growth since last sale:** {row['implied_annual_pct']*100:.1f}%/yr")
-        if row.get("sold_status"):
+        if pd.notna(row.get("sold_status")) and row.get("sold_status"):
             st.write(f"**Status:** {row['sold_status']}")
     st.divider()
 
