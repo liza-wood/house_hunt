@@ -178,6 +178,9 @@ async def _scrape_search_page(page: Page, cfg: SearchConfig, index: int) -> list
         first_visible = (item.get("firstVisibleDate") or item.get("listingUpdate", {}).get("listingUpdateDate"))
         summary = item.get("summary")
         display_status = item.get("displayStatus") or None
+        # "BUY" / "RENT" are channel names, not sold statuses — ignore them
+        if display_status and display_status.upper() in ("BUY", "RENT", "COMMERCIAL"):
+            display_status = None
         out.append(SearchHit(
             prop_id=pid,
             price=int(price) if price else None,

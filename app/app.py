@@ -250,7 +250,11 @@ mask = mask & commute_pass
 mask = mask & (df["score"] >= score_lo)
 
 if not show_sold:
+    # Exclude explicit sold/under-offer status
     mask = mask & ~df["sold_status"].fillna("").str.contains("Sold|Under Offer", case=False, regex=True)
+    # Also exclude properties not seen in 14 days — they've likely been removed from RightMove
+    cutoff = (pd.Timestamp.utcnow() - pd.Timedelta(days=14)).isoformat()
+    mask = mask & (df["last_seen"].fillna("") >= cutoff)
 
 filtered = df[mask].reset_index(drop=True)
 
