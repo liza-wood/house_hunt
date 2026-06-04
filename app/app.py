@@ -31,15 +31,28 @@ st.set_page_config(page_title="North London house hunt", layout="wide")
 # ---------------------------------------------------------------------------
 # Components and max points:
 #   Price per sqm      25 pts  (lower is better; NA → 0)
-#   Commute            25 pts  (best of two destinations; NA → 0)
+#   Commute            25 pts  (avg of both destinations; NA → 0)
 #   Connectivity       15 pts  (nearest station walk; NA → 0)
 #   Tenure             20 pts  (freehold > SOF > leasehold; years not stored yet)
 #   Outdoor space      15 pts  (garden > terrace/balcony > none)
 #   Ground floor flat -10 pts  (penalty when is_flat=1 and ground_floor=1)
+#   Renovation needed -10 pts  (detected from key_features text)
 
 _GARDEN_KEYWORDS = ("garden",)
 _TERRACE_KEYWORDS = ("terrace", "balcony", "patio", "courtyard", "outdoor space", "outside space")
 _JULIET = "juliet"
+
+_RENOVATION_KEYWORDS = (
+    "in need of",
+    "requires modernisation", "requiring modernisation", "scope for modernisation",
+    "scope to modernise", "potential to modernise",
+    "requires refurbishment", "refurbishment required", "refurbishment potential",
+    "refurbishment project", "in need of refurbishment",
+    "renovation",
+    "sold as seen", "as seen",
+    "blank canvas",
+    "development opportunity",
+)
 
 
 def _livability_score(row: pd.Series) -> float:
@@ -56,16 +69,16 @@ def _livability_score(row: pd.Series) -> float:
         elif ppsm < 8_000: score += 10
         elif ppsm < 9_000: score += 5
 
-    # 2. Commute — best of both destinations (0–25 pts)
+    # 2. Commute — average of both destinations (0–25 pts)
     commutes = [v for v in [row.get("commute_wc2b_minutes"), row.get("commute_sw1p_minutes")]
                 if pd.notna(v)]
     if commutes:
-        best = min(commutes)
-        if best <= 20:   score += 25
-        elif best <= 30: score += 20
-        elif best <= 40: score += 15
-        elif best <= 50: score += 10
-        elif best <= 60: score += 5
+        avg = sum(commutes) / len(commutes)
+        if avg < 30:   score += 25
+        elif avg < 40: score += 20
+        elif avg < 50: score += 15
+        elif avg < 60: score += 10
+        # >60 → 0 pts
 
     # 3. Connectivity — nearest of tube or rail (0–15 pts)
     dists = [v for v in [row.get("nearest_tube_dist_m"), row.get("nearest_rail_dist_m")]
@@ -83,7 +96,6 @@ def _livability_score(row: pd.Series) -> float:
         score -= 10
 
     # 5. Tenure (0–20 pts)
-    # Note: years remaining on lease are not currently stored — leaseholds score flat.
     tenure = str(row.get("tenure") or "").upper()
     if "SHARE_OF_FREEHOLD" in tenure or "COMMONHOLD" in tenure:
         score += 17
@@ -100,6 +112,10 @@ def _livability_score(row: pd.Series) -> float:
         score += 15
     elif has_terrace:
         score += 8
+
+    # 7. Renovation penalty (-10 pts)
+    if any(kw in haystack for kw in _RENOVATION_KEYWORDS):
+        score -= 10
 
     return round(score)
 
@@ -224,6 +240,7 @@ with st.sidebar:
 
     score_lo = st.slider("Minimum livability score", 0, 100, 0, step=1)
 
+    new_only = st.checkbox("New listings only (last scrape)", value=False)
     show_sold = st.checkbox("Include Sold STC / Under Offer", value=True)
 
 
@@ -248,6 +265,11 @@ commute_pass = (
 mask = mask & commute_pass
 
 mask = mask & (df["score"] >= score_lo)
+
+if new_only:
+    latest_scrape = df["first_seen"].max()
+    cutoff_new = (pd.Timestamp(latest_scrape) - pd.Timedelta(hours=36)).isoformat()
+    mask = mask & (df["first_seen"].fillna("") >= cutoff_new)
 
 if not show_sold:
     # Exclude explicit sold/under-offer status
