@@ -187,13 +187,15 @@ def f_in(df: pd.DataFrame, col: str, allowed: list[str]) -> pd.Series:
 
 
 def f_bool(df: pd.DataFrame, col: str, want: str) -> pd.Series:
-    """want in {'Any', 'Yes', 'No'}; NaN passes for Any only."""
+    """want in {'Any', 'Yes', 'No'}.
+    'Yes' = confirmed true. 'No' = exclude confirmed true (NaN passes)."""
     if want == "Any":
         return pd.Series([True] * len(df), index=df.index)
     s = df[col]
     if want == "Yes":
         return s == 1
-    return s == 0
+    # "No" = hide confirmed ground-floor flats; keep houses, unknown-floor flats, etc.
+    return s.isna() | (s == 0)
 
 
 # ---------------------------------------------------------------------------
